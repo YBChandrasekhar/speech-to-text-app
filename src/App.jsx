@@ -20,20 +20,19 @@ function App() {
       return
     }
 
-    const formData = new FormData()
-    formData.append('audio', file)
-
     setIsLoading(true)
     setError('')
 
     try {
-      const res = await fetch('/transcribe', {
+      const formData = new FormData()
+      formData.append('audio', file)
+
+      const res = await fetch('http://localhost:5000/transcribe', {
         method: 'POST',
         body: formData,
       })
 
       const data = await res.json()
-
       if (!res.ok) {
         throw new Error(data.error || 'Transcription request failed')
       }
@@ -68,7 +67,7 @@ function App() {
       )}
 
       <footer>
-        <small>Server: http://localhost:5000/transcribe</small>
+        <small>Powered by Deepgram API</small>
       </footer>
     </div>
   )

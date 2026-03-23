@@ -12,5 +12,7 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    host: 'localhost',
+    port: 5173,
   },
 })
