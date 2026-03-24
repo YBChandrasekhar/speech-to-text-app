@@ -84,8 +84,8 @@ function App() {
 
   return (
     <div className="app-container">
-      <h1>Deepgram Speech-to-Text</h1>
-      <p>Upload an audio file (wav/mp3/m4a/webm) and get transcript from backend.</p>
+      <h1>OpenAI Whisper Speech-to-Text</h1>
+      <p>Upload an audio file (wav/mp3/m4a/webm) and get transcript from backend using OpenAI Whisper.</p>
 
       <form onSubmit={handleSubmit}>
         <input type="file" accept="audio/*" onChange={handleFileChange} />
@@ -151,7 +151,7 @@ function App() {
       )}
 
       <footer>
-        <small>Powered by Deepgram API & Supabase</small>
+        <small>Powered by OpenAI Whisper & Supabase</small>
       </footer>
     </div>
   )

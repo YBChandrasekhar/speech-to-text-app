@@ -1,11 +1,11 @@
 # Speech-to-Text App
 
-A full-stack speech-to-text transcription application using **React**, **Vite**, **Express**, and **Deepgram API**.
+A full-stack speech-to-text transcription application using **React**, **Vite**, **Express**, and **OpenAI Whisper API**.
 
 ## Features
 
 - 🎤 Upload audio files (WAV, MP3, M4A, WebM)
-- 🤖 Real-time transcription using Deepgram's Nova-2 model
+- 🤖 Speech-to-text transcription using OpenAI Whisper (`whisper-1`)
 - ⚡ Fast, responsive UI with React + Vite
 - 🔄 Vite proxy for seamless frontend-backend communication
 - 🛡️ CORS-enabled Express backend
@@ -19,9 +19,9 @@ A full-stack speech-to-text transcription application using **React**, **Vite**,
 
 ## Prerequisites
 
-- Node.js (v16+)
+- Node.js (v18+ for built-in fetch/FormData or adjust with polyfills)
 - npm or yarn
-- Deepgram API key ([get free key](https://deepgram.com/))
+- OpenAI API key ([get one](https://platform.openai.com/))
 
 ## Installation
 
@@ -39,7 +39,7 @@ npm install
 Create a `.env` file in the root directory:
 
 ```env
-DEEPGRAM_API_KEY=your_deepgram_api_key
+OPENAI_API_KEY=your_openai_api_key
 ```
 
 ## Running the Application

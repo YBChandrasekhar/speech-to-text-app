@@ -2,7 +2,6 @@ import express from "express";
 import multer from "multer";
 import cors from "cors";
 import dotenv from "dotenv";
-import https from "https";
 import fs from "fs";
 
 dotenv.config();
@@ -12,47 +11,30 @@ app.use(cors());
 
 const upload = multer({ dest: "uploads/" });
 
-// Direct Deepgram API call function
-async function transcribeAudio(audioBuffer, mimetype) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.deepgram.com',
-      path: '/v1/listen?model=nova-2&punctuate=true',
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${process.env.DEEPGRAM_API_KEY}`,
-        'Content-Type': mimetype || 'audio/wav'
-      }
-    };
+// OpenAI Whisper transcription function
+async function transcribeAudio(filePath) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY in environment');
+  }
 
-    const req = https.request(options, (res) => {
-      let data = '';
+  const formData = new FormData();
+  formData.append('file', fs.createReadStream(filePath));
+  formData.append('model', 'whisper-1');
 
-      res.on('data', (chunk) => {
-        data += chunk;
-      });
-
-      res.on('end', () => {
-        try {
-          const result = JSON.parse(data);
-          if (result.error) {
-            reject(new Error(result.error));
-          } else {
-            resolve(result);
-          }
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-
-    req.on('error', (error) => {
-      reject(error);
-    });
-
-    req.write(audioBuffer);
-    req.end();
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: formData,
   });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
+  }
+
+  return response.json();
 }
 
 app.post("/transcribe", upload.single("audio"), async (req, res) => {
@@ -61,19 +43,16 @@ app.post("/transcribe", upload.single("audio"), async (req, res) => {
   }
 
   try {
-    const audio = fs.readFileSync(req.file.path);
-    const mimeType = req.file.mimetype || "audio/wav";
-
-    const response = await transcribeAudio(audio, mimeType);
+    const response = await transcribeAudio(req.file.path);
 
     // cleanup temp file
     fs.unlink(req.file.path, (err) => {
       if (err) console.warn("Could not delete temp file:", err);
     });
 
-    const transcript = response?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
+    const transcript = response?.text;
     if (!transcript) {
-      return res.status(500).json({ error: "No transcript returned from Deepgram" });
+      return res.status(500).json({ error: "No transcript returned from Whisper" });
     }
 
     res.json({ text: transcript });
