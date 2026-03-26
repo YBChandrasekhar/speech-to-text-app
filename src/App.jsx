@@ -1,160 +1,196 @@
-import { useState, useEffect } from 'react'
-import { storeTranscription, getTranscriptions, deleteTranscription } from './db'
-import './App.css'
+import { useState, useEffect, useRef } from "react";
+import {
+  storeTranscription,
+  getTranscriptions,
+  deleteTranscription,
+} from "./db";
 
 function App() {
-  const [file, setFile] = useState(null)
-  const [transcript, setTranscript] = useState('')
-  const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [savedTranscriptions, setSavedTranscriptions] = useState([])
-  const [showHistory, setShowHistory] = useState(false)
+  const [file, setFile] = useState(null);
+  const [transcript, setTranscript] = useState("");
+  const [error, setError] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [history, setHistory] = useState([]);
 
-  // Load transcriptions on mount
+  const mediaRecorderRef = useRef(null);
+  const audioChunks = useRef([]);
+
   useEffect(() => {
-    loadTranscriptions()
-  }, [])
+    loadHistory();
+  }, []);
 
-  const loadTranscriptions = async () => {
-    const result = await getTranscriptions()
-    if (result.success) {
-      setSavedTranscriptions(result.data || [])
-    }
-  }
+  const loadHistory = async () => {
+    const res = await getTranscriptions();
+    if (res.success) setHistory(res.data);
+  };
 
-  const handleFileChange = (event) => {
-    setError('')
-    setTranscript('')
-    setFile(event.target.files[0] || null)
-  }
+  // 📁 File Upload
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+    setTranscript("");
+    setError("");
+  };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault()
+  // 🎙 Start Recording
+  const startRecording = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    const recorder = new MediaRecorder(stream);
+    mediaRecorderRef.current = recorder;
+    audioChunks.current = [];
+
+    recorder.ondataavailable = (e) => {
+      audioChunks.current.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      const blob = new Blob(audioChunks.current, { type: "audio/webm" });
+      const file = new File([blob], "recording.webm");
+      setFile(file);
+    };
+
+    recorder.start();
+    setIsRecording(true);
+  };
+
+  // 🛑 Stop Recording
+  const stopRecording = () => {
+    mediaRecorderRef.current.stop();
+    setIsRecording(false);
+  };
+
+  // 🚀 Send to backend
+  const handleSubmit = async () => {
     if (!file) {
-      setError('Please choose an audio file first.')
-      return
+      setError("Please upload or record audio");
+      return;
     }
-
-    setIsLoading(true)
-    setError('')
 
     try {
-      const formData = new FormData()
-      formData.append('audio', file)
+      const formData = new FormData();
+      formData.append("audio", file);
 
-      const res = await fetch('http://localhost:5000/transcribe', {
-        method: 'POST',
+      const res = await fetch("http://localhost:5000/transcribe", {
+        method: "POST",
         body: formData,
-      })
+      });
 
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.error || 'Transcription request failed')
-      }
+      const data = await res.json();
 
-      setTranscript(data.text || '')
+      if (!res.ok) throw new Error(data.error);
 
-      // Store in Supabase
-      const fileName = file.name
-      const result = await storeTranscription(fileName, data.text)
-      
-      if (result.success) {
-        setError('') // Clear error
-        // Refresh the transcription list
-        await loadTranscriptions()
-      } else {
-        console.warn('Could not save to database:', result.error)
-      }
+      setTranscript(data.text);
+
+      const source =
+        file.name === "recording.webm" ? "recording" : "upload";
+
+      await storeTranscription(file.name, data.text, source);
+      loadHistory();
     } catch (err) {
-      setError('Transcription failed: ' + (err.message || 'unknown error'))
-      setTranscript('')
-    } finally {
-      setIsLoading(false)
+      setError(err.message);
     }
-  }
+  };
 
-  const handleDeleteTranscription = async (id) => {
-    const result = await deleteTranscription(id)
-    if (result.success) {
-      await loadTranscriptions()
-    } else {
-      setError('Failed to delete: ' + result.error)
-    }
-  }
+  // ❌ Delete
+  const handleDelete = async (id) => {
+    await deleteTranscription(id);
+    loadHistory();
+  };
+
+  // 📥 Download
+  const downloadText = (text) => {
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "transcript.txt";
+    a.click();
+  };
 
   return (
-    <div className="app-container">
-      <h1>OpenAI Whisper Speech-to-Text</h1>
-      <p>Upload an audio file (wav/mp3/m4a/webm) and get transcript from backend using OpenAI Whisper.</p>
+    <div className="min-h-screen bg-gray-100 p-6 flex flex-col items-center">
+      <h1 className="text-3xl font-bold mb-4">🎤 Speech-to-Text App</h1>
 
-      <form onSubmit={handleSubmit}>
+      <div className="bg-white p-6 rounded-xl shadow w-full max-w-md">
         <input type="file" accept="audio/*" onChange={handleFileChange} />
-        <button type="submit" disabled={isLoading}>
-          {isLoading ? 'Transcribing...' : 'Transcribe'}
+
+        <div className="flex gap-3 mt-3">
+          <button
+            onClick={startRecording}
+            disabled={isRecording}
+            className="bg-green-500 text-white px-3 py-1 rounded"
+          >
+            Record
+          </button>
+
+          <button
+            onClick={stopRecording}
+            disabled={!isRecording}
+            className="bg-red-500 text-white px-3 py-1 rounded"
+          >
+            Stop
+          </button>
+        </div>
+
+        <button
+          onClick={handleSubmit}
+          className="mt-4 w-full bg-blue-500 text-white py-2 rounded"
+        >
+          Transcribe
         </button>
-      </form>
 
-      {error && <div className="error">{error}</div>}
-      {transcript && (
-        <div className="result">
-          <h2>Current Transcript</h2>
-          <p>{transcript}</p>
-        </div>
-      )}
+        {error && <p className="text-red-500 mt-2">{error}</p>}
 
-      <button 
-        onClick={() => setShowHistory(!showHistory)}
-        style={{ marginTop: '20px', padding: '10px 20px' }}
-      >
-        {showHistory ? 'Hide History' : 'Show History'}
-      </button>
+        {transcript && (
+          <div className="mt-4 bg-gray-200 p-3 rounded">
+            <h3 className="font-bold">Transcript:</h3>
+            <p>{transcript}</p>
+          </div>
+        )}
+      </div>
 
-      {showHistory && (
-        <div className="history" style={{ marginTop: '20px' }}>
-          <h2>Saved Transcriptions ({savedTranscriptions.length})</h2>
-          {savedTranscriptions.length === 0 ? (
-            <p>No saved transcriptions yet.</p>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0 }}>
-              {savedTranscriptions.map((item) => (
-                <li 
-                  key={item.id}
-                  style={{
-                    border: '1px solid #ddd',
-                    padding: '10px',
-                    marginBottom: '10px',
-                    borderRadius: '5px'
-                  }}
-                >
-                  <strong>{item.filename}</strong>
-                  <p>{item.transcript}</p>
-                  <small>{new Date(item.created_at).toLocaleString()}</small>
-                  <button
-                    onClick={() => handleDeleteTranscription(item.id)}
-                    style={{
-                      marginTop: '10px',
-                      padding: '5px 10px',
-                      backgroundColor: '#ff4444',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '3px',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Delete
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {/* History */}
+      <div className="mt-6 w-full max-w-md">
+        <h2 className="text-xl font-bold mb-2">
+          History ({history.length})
+        </h2>
 
-      <footer>
-        <small>Powered by OpenAI Whisper & Supabase</small>
-      </footer>
+        {history.map((item) => (
+          <div
+            key={item.id}
+            className="bg-white p-3 mb-2 rounded shadow"
+          >
+            <strong>{item.filename}</strong>
+            <span className="text-gray-500 ml-2">
+              ({item.source})
+            </span>
+
+            <p>{item.transcript}</p>
+
+            <small>
+              {new Date(item.created_at).toLocaleString()}
+            </small>
+
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => downloadText(item.transcript)}
+                className="bg-blue-400 text-white px-2 py-1 rounded"
+              >
+                Download
+              </button>
+
+              <button
+                onClick={() => handleDelete(item.id)}
+                className="bg-red-500 text-white px-2 py-1 rounded"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
