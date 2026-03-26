@@ -9,6 +9,7 @@ function App() {
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [history, setHistory] = useState([]);
 
@@ -24,14 +25,12 @@ function App() {
     if (res.success) setHistory(res.data);
   };
 
-  // 📁 File Upload
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
     setTranscript("");
     setError("");
   };
 
-  // 🎙 Start Recording
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -45,26 +44,28 @@ function App() {
 
     recorder.onstop = () => {
       const blob = new Blob(audioChunks.current, { type: "audio/webm" });
-      const file = new File([blob], "recording.webm");
-      setFile(file);
+      const recordedFile = new File([blob], "recording.webm");
+      setFile(recordedFile);
     };
 
     recorder.start();
     setIsRecording(true);
   };
 
-  // 🛑 Stop Recording
   const stopRecording = () => {
     mediaRecorderRef.current.stop();
     setIsRecording(false);
   };
 
-  // 🚀 Send to backend
   const handleSubmit = async () => {
     if (!file) {
       setError("Please upload or record audio");
       return;
     }
+
+    setLoading(true);
+    setError("");
+    setTranscript("");
 
     try {
       const formData = new FormData();
@@ -76,7 +77,6 @@ function App() {
       });
 
       const data = await res.json();
-
       if (!res.ok) throw new Error(data.error);
 
       setTranscript(data.text);
@@ -88,16 +88,16 @@ function App() {
       loadHistory();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ❌ Delete
   const handleDelete = async (id) => {
     await deleteTranscription(id);
     loadHistory();
   };
 
-  // 📥 Download
   const downloadText = (text) => {
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -108,86 +108,139 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 p-6 flex flex-col items-center">
-      <h1 className="text-3xl font-bold mb-4">🎤 Speech-to-Text App</h1>
+    <div className="min-h-screen bg-gray-100">
 
-      <div className="bg-white p-6 rounded-xl shadow w-full max-w-md">
-        <input type="file" accept="audio/*" onChange={handleFileChange} />
+      {/* HEADER */}
+      <header className="bg-white shadow p-4 flex justify-between items-center sticky top-0 z-10">
+        <h1 className="text-xl font-bold text-gray-700">
+          🎤 Speech Dashboard
+        </h1>
+        <span className="text-sm text-gray-500">
+          {history.length} Transcriptions
+        </span>
+      </header>
 
-        <div className="flex gap-3 mt-3">
+      <div className="grid md:grid-cols-2 gap-6 p-6">
+
+        {/* LEFT PANEL */}
+        <div className="bg-white p-6 rounded-xl shadow">
+
+          <h2 className="text-lg font-semibold mb-4">
+            Upload / Record
+          </h2>
+
+          {/* Upload */}
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={handleFileChange}
+            className="mb-4 w-full border p-2 rounded"
+          />
+
+          {/* Recording */}
+          <div className="flex gap-3 mb-4 items-center">
+            <button
+              onClick={startRecording}
+              disabled={isRecording}
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+            >
+              🎙 Start
+            </button>
+
+            <button
+              onClick={stopRecording}
+              disabled={!isRecording}
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+            >
+              ⏹ Stop
+            </button>
+
+            {isRecording && (
+              <span className="text-red-500 animate-pulse">
+                ● Recording...
+              </span>
+            )}
+          </div>
+
+          {/* Submit */}
           <button
-            onClick={startRecording}
-            disabled={isRecording}
-            className="bg-green-500 text-white px-3 py-1 rounded"
+            onClick={handleSubmit}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold"
           >
-            Record
+            🚀 Transcribe
           </button>
 
-          <button
-            onClick={stopRecording}
-            disabled={!isRecording}
-            className="bg-red-500 text-white px-3 py-1 rounded"
-          >
-            Stop
-          </button>
+          {/* Loading */}
+          {loading && (
+            <p className="mt-3 text-blue-500 animate-pulse">
+              ⏳ Processing audio...
+            </p>
+          )}
+
+          {/* Error */}
+          {error && (
+            <p className="mt-3 text-red-500">{error}</p>
+          )}
+
+          {/* Result */}
+          {transcript && (
+            <div className="mt-4 p-4 bg-gray-100 rounded">
+              <h3 className="font-semibold mb-2">
+                📝 Result
+              </h3>
+              <p>{transcript}</p>
+            </div>
+          )}
         </div>
 
-        <button
-          onClick={handleSubmit}
-          className="mt-4 w-full bg-blue-500 text-white py-2 rounded"
-        >
-          Transcribe
-        </button>
+        {/* RIGHT PANEL (HISTORY) */}
+        <div className="bg-white p-6 rounded-xl shadow max-h-[75vh] overflow-y-auto">
 
-        {error && <p className="text-red-500 mt-2">{error}</p>}
+          <h2 className="text-lg font-semibold mb-4">
+            History
+          </h2>
 
-        {transcript && (
-          <div className="mt-4 bg-gray-200 p-3 rounded">
-            <h3 className="font-bold">Transcript:</h3>
-            <p>{transcript}</p>
-          </div>
-        )}
-      </div>
+          {history.map((item) => (
+            <div
+              key={item.id}
+              className="border p-3 mb-3 rounded"
+            >
+              <div className="flex justify-between">
+                <strong>{item.filename}</strong>
+                <span className="text-xs text-gray-500">
+                  {item.source}
+                </span>
+              </div>
 
-      {/* History */}
-      <div className="mt-6 w-full max-w-md">
-        <h2 className="text-xl font-bold mb-2">
-          History ({history.length})
-        </h2>
+              <p className="text-sm mt-2">
+                {item.transcript}
+              </p>
 
-        {history.map((item) => (
-          <div
-            key={item.id}
-            className="bg-white p-3 mb-2 rounded shadow"
-          >
-            <strong>{item.filename}</strong>
-            <span className="text-gray-500 ml-2">
-              ({item.source})
-            </span>
+              <div className="flex justify-between mt-3 text-xs">
+                <span>
+                  {new Date(item.created_at).toLocaleString()}
+                </span>
 
-            <p>{item.transcript}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => downloadText(item.transcript)}
+                    className="text-blue-500"
+                  >
+                    Download
+                  </button>
 
-            <small>
-              {new Date(item.created_at).toLocaleString()}
-            </small>
-
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => downloadText(item.transcript)}
-                className="bg-blue-400 text-white px-2 py-1 rounded"
-              >
-                Download
-              </button>
-
-              <button
-                onClick={() => handleDelete(item.id)}
-                className="bg-red-500 text-white px-2 py-1 rounded"
-              >
-                Delete
-              </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="text-red-500"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+
+        </div>
       </div>
     </div>
   );
