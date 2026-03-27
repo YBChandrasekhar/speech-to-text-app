@@ -1,9 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import {
-  storeTranscription,
-  getTranscriptions,
-  deleteTranscription,
-} from "./db";
 
 function App() {
   const [file, setFile] = useState(null);
@@ -20,9 +15,15 @@ function App() {
     loadHistory();
   }, []);
 
+  // ✅ Fetch history from backend
   const loadHistory = async () => {
-    const res = await getTranscriptions();
-    if (res.success) setHistory(res.data);
+    try {
+      const res = await fetch("http://localhost:5000/transcriptions");
+      const data = await res.json();
+      setHistory(data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleFileChange = (e) => {
@@ -57,6 +58,7 @@ function App() {
     setIsRecording(false);
   };
 
+  // ✅ Transcribe using FETCH
   const handleSubmit = async () => {
     if (!file) {
       setError("Please upload or record audio");
@@ -81,11 +83,9 @@ function App() {
 
       setTranscript(data.text);
 
-      const source =
-        file.name === "recording.webm" ? "recording" : "upload";
-
-      await storeTranscription(file.name, data.text, source);
+      // ✅ backend already saved → just reload
       loadHistory();
+
     } catch (err) {
       setError(err.message);
     } finally {
@@ -93,9 +93,16 @@ function App() {
     }
   };
 
+  // ✅ Delete via backend
   const handleDelete = async (id) => {
-    await deleteTranscription(id);
-    loadHistory();
+    try {
+      await fetch(`http://localhost:5000/transcriptions/${id}`, {
+        method: "DELETE",
+      });
+      loadHistory();
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const downloadText = (text) => {
@@ -129,7 +136,6 @@ function App() {
             Upload / Record
           </h2>
 
-          {/* Upload */}
           <input
             type="file"
             accept="audio/*"
@@ -137,7 +143,6 @@ function App() {
             className="mb-4 w-full border p-2 rounded"
           />
 
-          {/* Recording */}
           <div className="flex gap-3 mb-4 items-center">
             <button
               onClick={startRecording}
@@ -162,7 +167,6 @@ function App() {
             )}
           </div>
 
-          {/* Submit */}
           <button
             onClick={handleSubmit}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold"
@@ -170,19 +174,16 @@ function App() {
             🚀 Transcribe
           </button>
 
-          {/* Loading */}
           {loading && (
             <p className="mt-3 text-blue-500 animate-pulse">
               ⏳ Processing audio...
             </p>
           )}
 
-          {/* Error */}
           {error && (
             <p className="mt-3 text-red-500">{error}</p>
           )}
 
-          {/* Result */}
           {transcript && (
             <div className="mt-4 p-4 bg-gray-100 rounded">
               <h3 className="font-semibold mb-2">
@@ -193,7 +194,7 @@ function App() {
           )}
         </div>
 
-        {/* RIGHT PANEL (HISTORY) */}
+        {/* RIGHT PANEL */}
         <div className="bg-white p-6 rounded-xl shadow max-h-[75vh] overflow-y-auto">
 
           <h2 className="text-lg font-semibold mb-4">
@@ -201,10 +202,7 @@ function App() {
           </h2>
 
           {history.map((item) => (
-            <div
-              key={item.id}
-              className="border p-3 mb-3 rounded"
-            >
+            <div key={item.id} className="border p-3 mb-3 rounded">
               <div className="flex justify-between">
                 <strong>{item.filename}</strong>
                 <span className="text-xs text-gray-500">
