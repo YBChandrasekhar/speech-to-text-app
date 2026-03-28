@@ -15,7 +15,7 @@ function App() {
     loadHistory();
   }, []);
 
-  // ✅ Fetch history from backend
+  // 📥 Fetch history from backend
   const loadHistory = async () => {
     try {
       const res = await fetch("http://localhost:5000/transcriptions");
@@ -32,6 +32,7 @@ function App() {
     setError("");
   };
 
+  // 🎙 Start Recording
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -58,7 +59,7 @@ function App() {
     setIsRecording(false);
   };
 
-  // ✅ Transcribe using FETCH
+  // 🚀 Transcribe
   const handleSubmit = async () => {
     if (!file) {
       setError("Please upload or record audio");
@@ -83,7 +84,7 @@ function App() {
 
       setTranscript(data.text);
 
-      // ✅ backend already saved → just reload
+      // Refresh history (backend already saved)
       loadHistory();
 
     } catch (err) {
@@ -93,7 +94,7 @@ function App() {
     }
   };
 
-  // ✅ Delete via backend
+  // ❌ Delete
   const handleDelete = async (id) => {
     try {
       await fetch(`http://localhost:5000/transcriptions/${id}`, {
@@ -105,6 +106,7 @@ function App() {
     }
   };
 
+  // 📥 Download
   const downloadText = (text) => {
     const blob = new Blob([text], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -147,7 +149,7 @@ function App() {
             <button
               onClick={startRecording}
               disabled={isRecording}
-              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded"
+              className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded transition"
             >
               🎙 Start
             </button>
@@ -155,7 +157,7 @@ function App() {
             <button
               onClick={stopRecording}
               disabled={!isRecording}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded transition"
             >
               ⏹ Stop
             </button>
@@ -169,7 +171,7 @@ function App() {
 
           <button
             onClick={handleSubmit}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold transition"
           >
             🚀 Transcribe
           </button>
@@ -185,11 +187,11 @@ function App() {
           )}
 
           {transcript && (
-            <div className="mt-4 p-4 bg-gray-100 rounded">
-              <h3 className="font-semibold mb-2">
+            <div className="mt-4 p-4 bg-gray-100 rounded-lg shadow-inner">
+              <h3 className="font-semibold mb-2 text-gray-700">
                 📝 Result
               </h3>
-              <p>{transcript}</p>
+              <p className="text-gray-800">{transcript}</p>
             </div>
           )}
         </div>
@@ -202,19 +204,24 @@ function App() {
           </h2>
 
           {history.map((item) => (
-            <div key={item.id} className="border p-3 mb-3 rounded">
-              <div className="flex justify-between">
-                <strong>{item.filename}</strong>
+            <div
+              key={item.id}
+              className="bg-gray-50 p-4 mb-4 rounded-lg shadow hover:shadow-md transition transform hover:scale-[1.02]"
+            >
+              <div className="flex justify-between items-center">
+                <strong className="text-gray-700">
+                  {item.filename}
+                </strong>
                 <span className="text-xs text-gray-500">
                   {item.source}
                 </span>
               </div>
 
-              <p className="text-sm mt-2">
+              <p className="text-gray-800 text-sm mt-2">
                 {item.transcript}
               </p>
 
-              <div className="flex justify-between mt-3 text-xs">
+              <div className="flex justify-between mt-3 text-xs text-gray-500">
                 <span>
                   {new Date(item.created_at).toLocaleString()}
                 </span>
@@ -222,14 +229,14 @@ function App() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => downloadText(item.transcript)}
-                    className="text-blue-500"
+                    className="text-blue-500 hover:underline"
                   >
                     Download
                   </button>
 
                   <button
                     onClick={() => handleDelete(item.id)}
-                    className="text-red-500"
+                    className="text-red-500 hover:underline"
                   >
                     Delete
                   </button>
