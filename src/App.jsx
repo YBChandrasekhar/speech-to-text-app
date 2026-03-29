@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 
+const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
+const MAX_SIZE_MB = 25;
+
 function App() {
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState("");
@@ -15,10 +18,10 @@ function App() {
     loadHistory();
   }, []);
 
-  // 📥 Fetch history from backend
   const loadHistory = async () => {
     try {
       const res = await fetch("http://localhost:5000/transcriptions");
+      if (!res.ok) throw new Error("Failed to load history.");
       const data = await res.json();
       setHistory(data);
     } catch (err) {
@@ -26,32 +29,63 @@ function App() {
     }
   };
 
+  // ✅ Validate file type & size
+  const validateFile = (f) => {
+    if (!ALLOWED_TYPES.includes(f.type)) {
+      return `Invalid file type "${f.type}". Please upload WAV, MP3, M4A, or WebM.`;
+    }
+    if (f.size > MAX_SIZE_MB * 1024 * 1024) {
+      return `File too large. Maximum allowed size is ${MAX_SIZE_MB}MB.`;
+    }
+    return null;
+  };
+
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const selected = e.target.files[0];
+    if (!selected) return;
+    const validationError = validateFile(selected);
+    if (validationError) {
+      setError(validationError);
+      setFile(null);
+      e.target.value = "";
+      return;
+    }
+    setFile(selected);
     setTranscript("");
     setError("");
   };
 
-  // 🎙 Start Recording
+  // 🎙 Start Recording — handle mic permission denial
   const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunks.current = [];
 
-    const recorder = new MediaRecorder(stream);
-    mediaRecorderRef.current = recorder;
-    audioChunks.current = [];
+      recorder.ondataavailable = (e) => {
+        audioChunks.current.push(e.data);
+      };
 
-    recorder.ondataavailable = (e) => {
-      audioChunks.current.push(e.data);
-    };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunks.current, { type: "audio/webm" });
+        const recordedFile = new File([blob], "recording.webm", { type: "audio/webm" });
+        setFile(recordedFile);
+        setError("");
+      };
 
-    recorder.onstop = () => {
-      const blob = new Blob(audioChunks.current, { type: "audio/webm" });
-      const recordedFile = new File([blob], "recording.webm");
-      setFile(recordedFile);
-    };
-
-    recorder.start();
-    setIsRecording(true);
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      if (err.name === "NotAllowedError") {
+        setError("Microphone access denied. Please allow microphone permission and try again.");
+      } else if (err.name === "NotFoundError") {
+        setError("No microphone found. Please connect a microphone and try again.");
+      } else {
+        setError(`Recording failed: ${err.message}`);
+      }
+    }
   };
 
   const stopRecording = () => {
@@ -62,7 +96,13 @@ function App() {
   // 🚀 Transcribe
   const handleSubmit = async () => {
     if (!file) {
-      setError("Please upload or record audio");
+      setError("Please upload or record audio before transcribing.");
+      return;
+    }
+
+    const validationError = validateFile(file);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -80,40 +120,51 @@ function App() {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Transcription failed. Please try again.");
 
       setTranscript(data.text);
-
-      // Refresh history (backend already saved)
       loadHistory();
-
     } catch (err) {
-      setError(err.message);
+      if (err.message === "Failed to fetch") {
+        setError("Cannot connect to server. Make sure the backend is running on port 5000.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // ❌ Delete
+  // ❌ Delete — show error if it fails
   const handleDelete = async (id) => {
+    // ✅ Fix CWE-918: validate id is a safe positive integer before using in URL
+    const safeId = parseInt(id, 10);
+    if (!Number.isInteger(safeId) || safeId <= 0) {
+      setError("Invalid transcription ID.");
+      return;
+    }
+
     try {
-      await fetch(`http://localhost:5000/transcriptions/${id}`, {
+      const res = await fetch(`http://localhost:5000/transcriptions/${safeId}`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Delete failed.");
+      }
       loadHistory();
     } catch (err) {
-      console.error(err);
+      setError(`Delete failed: ${err.message}`);
     }
   };
 
-  // 📥 Download
   const downloadText = (text) => {
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = "transcript.txt";
     a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -183,7 +234,9 @@ function App() {
           )}
 
           {error && (
-            <p className="mt-3 text-red-500">{error}</p>
+            <p className="mt-3 text-red-500 bg-red-50 border border-red-200 rounded p-2 text-sm">
+              ⚠️ {error}
+            </p>
           )}
 
           {transcript && (
