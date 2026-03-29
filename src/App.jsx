@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabaseClient";
+import Auth from "./Auth";
 
 const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
 const MAX_SIZE_MB = 25;
 
 function App() {
+  const [session, setSession] = useState(null);
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
@@ -14,13 +17,29 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const audioChunks = useRef([]);
 
+  // 🔐 Auth session listener
   useEffect(() => {
-    loadHistory();
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setSession(session));
+    return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (session) loadHistory();
+    else setHistory([]);
+  }, [session]);
+
+  const getToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token;
+  };
 
   const loadHistory = async () => {
     try {
-      const res = await fetch("http://localhost:5000/transcriptions");
+      const token = await getToken();
+      const res = await fetch("http://localhost:5000/transcriptions", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) throw new Error("Failed to load history.");
       const data = await res.json();
       setHistory(data);
@@ -29,14 +48,11 @@ function App() {
     }
   };
 
-  // ✅ Validate file type & size
   const validateFile = (f) => {
-    if (!ALLOWED_TYPES.includes(f.type)) {
+    if (!ALLOWED_TYPES.includes(f.type))
       return `Invalid file type "${f.type}". Please upload WAV, MP3, M4A, or WebM.`;
-    }
-    if (f.size > MAX_SIZE_MB * 1024 * 1024) {
+    if (f.size > MAX_SIZE_MB * 1024 * 1024)
       return `File too large. Maximum allowed size is ${MAX_SIZE_MB}MB.`;
-    }
     return null;
   };
 
@@ -55,7 +71,6 @@ function App() {
     setError("");
   };
 
-  // 🎙 Start Recording — handle mic permission denial
   const startRecording = async () => {
     setError("");
     try {
@@ -64,27 +79,23 @@ function App() {
       mediaRecorderRef.current = recorder;
       audioChunks.current = [];
 
-      recorder.ondataavailable = (e) => {
-        audioChunks.current.push(e.data);
-      };
+      recorder.ondataavailable = (e) => audioChunks.current.push(e.data);
 
       recorder.onstop = () => {
         const blob = new Blob(audioChunks.current, { type: "audio/webm" });
-        const recordedFile = new File([blob], "recording.webm", { type: "audio/webm" });
-        setFile(recordedFile);
+        setFile(new File([blob], "recording.webm", { type: "audio/webm" }));
         setError("");
       };
 
       recorder.start();
       setIsRecording(true);
     } catch (err) {
-      if (err.name === "NotAllowedError") {
+      if (err.name === "NotAllowedError")
         setError("Microphone access denied. Please allow microphone permission and try again.");
-      } else if (err.name === "NotFoundError") {
+      else if (err.name === "NotFoundError")
         setError("No microphone found. Please connect a microphone and try again.");
-      } else {
+      else
         setError(`Recording failed: ${err.message}`);
-      }
     }
   };
 
@@ -93,29 +104,23 @@ function App() {
     setIsRecording(false);
   };
 
-  // 🚀 Transcribe
   const handleSubmit = async () => {
-    if (!file) {
-      setError("Please upload or record audio before transcribing.");
-      return;
-    }
-
+    if (!file) { setError("Please upload or record audio before transcribing."); return; }
     const validationError = validateFile(file);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    if (validationError) { setError(validationError); return; }
 
     setLoading(true);
     setError("");
     setTranscript("");
 
     try {
+      const token = await getToken();
       const formData = new FormData();
       formData.append("audio", file);
 
       const res = await fetch("http://localhost:5000/transcribe", {
         method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
@@ -125,28 +130,25 @@ function App() {
       setTranscript(data.text);
       loadHistory();
     } catch (err) {
-      if (err.message === "Failed to fetch") {
-        setError("Cannot connect to server. Make sure the backend is running on port 5000.");
-      } else {
-        setError(err.message);
-      }
+      setError(
+        err.message === "Failed to fetch"
+          ? "Cannot connect to server. Make sure the backend is running on port 5000."
+          : err.message
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  // ❌ Delete — show error if it fails
   const handleDelete = async (id) => {
-    // ✅ Fix CWE-918: validate id is a safe positive integer before using in URL
     const safeId = parseInt(id, 10);
-    if (!Number.isInteger(safeId) || safeId <= 0) {
-      setError("Invalid transcription ID.");
-      return;
-    }
+    if (!Number.isInteger(safeId) || safeId <= 0) { setError("Invalid transcription ID."); return; }
 
     try {
+      const token = await getToken();
       const res = await fetch(`http://localhost:5000/transcriptions/${safeId}`, {
         method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
         const data = await res.json();
@@ -167,27 +169,33 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
+  // 🔐 Show login screen if not authenticated
+  if (!session) return <Auth />;
+
   return (
     <div className="min-h-screen bg-gray-100">
 
       {/* HEADER */}
       <header className="bg-white shadow p-4 flex justify-between items-center sticky top-0 z-10">
-        <h1 className="text-xl font-bold text-gray-700">
-          🎤 Speech Dashboard
-        </h1>
-        <span className="text-sm text-gray-500">
-          {history.length} Transcriptions
-        </span>
+        <h1 className="text-xl font-bold text-gray-700">🎤 Speech Dashboard</h1>
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-500">{session.user.email}</span>
+          <span className="text-sm text-gray-400">|</span>
+          <span className="text-sm text-gray-500">{history.length} Transcriptions</span>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="text-sm text-red-500 hover:underline"
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       <div className="grid md:grid-cols-2 gap-6 p-6">
 
         {/* LEFT PANEL */}
         <div className="bg-white p-6 rounded-xl shadow">
-
-          <h2 className="text-lg font-semibold mb-4">
-            Upload / Record
-          </h2>
+          <h2 className="text-lg font-semibold mb-4">Upload / Record</h2>
 
           <input
             type="file"
@@ -204,7 +212,6 @@ function App() {
             >
               🎙 Start
             </button>
-
             <button
               onClick={stopRecording}
               disabled={!isRecording}
@@ -212,12 +219,7 @@ function App() {
             >
               ⏹ Stop
             </button>
-
-            {isRecording && (
-              <span className="text-red-500 animate-pulse">
-                ● Recording...
-              </span>
-            )}
+            {isRecording && <span className="text-red-500 animate-pulse">● Recording...</span>}
           </div>
 
           <button
@@ -227,11 +229,7 @@ function App() {
             🚀 Transcribe
           </button>
 
-          {loading && (
-            <p className="mt-3 text-blue-500 animate-pulse">
-              ⏳ Processing audio...
-            </p>
-          )}
+          {loading && <p className="mt-3 text-blue-500 animate-pulse">⏳ Processing audio...</p>}
 
           {error && (
             <p className="mt-3 text-red-500 bg-red-50 border border-red-200 rounded p-2 text-sm">
@@ -241,9 +239,7 @@ function App() {
 
           {transcript && (
             <div className="mt-4 p-4 bg-gray-100 rounded-lg shadow-inner">
-              <h3 className="font-semibold mb-2 text-gray-700">
-                📝 Result
-              </h3>
+              <h3 className="font-semibold mb-2 text-gray-700">📝 Result</h3>
               <p className="text-gray-800">{transcript}</p>
             </div>
           )}
@@ -251,10 +247,11 @@ function App() {
 
         {/* RIGHT PANEL */}
         <div className="bg-white p-6 rounded-xl shadow max-h-[75vh] overflow-y-auto">
+          <h2 className="text-lg font-semibold mb-4">History</h2>
 
-          <h2 className="text-lg font-semibold mb-4">
-            History
-          </h2>
+          {history.length === 0 && (
+            <p className="text-gray-400 text-sm">No transcriptions yet.</p>
+          )}
 
           {history.map((item) => (
             <div
@@ -262,23 +259,12 @@ function App() {
               className="bg-gray-50 p-4 mb-4 rounded-lg shadow hover:shadow-md transition transform hover:scale-[1.02]"
             >
               <div className="flex justify-between items-center">
-                <strong className="text-gray-700">
-                  {item.filename}
-                </strong>
-                <span className="text-xs text-gray-500">
-                  {item.source}
-                </span>
+                <strong className="text-gray-700">{item.filename}</strong>
+                <span className="text-xs text-gray-500">{item.source}</span>
               </div>
-
-              <p className="text-gray-800 text-sm mt-2">
-                {item.transcript}
-              </p>
-
+              <p className="text-gray-800 text-sm mt-2">{item.transcript}</p>
               <div className="flex justify-between mt-3 text-xs text-gray-500">
-                <span>
-                  {new Date(item.created_at).toLocaleString()}
-                </span>
-
+                <span>{new Date(item.created_at).toLocaleString()}</span>
                 <div className="flex gap-3">
                   <button
                     onClick={() => downloadText(item.transcript)}
@@ -286,7 +272,6 @@ function App() {
                   >
                     Download
                   </button>
-
                   <button
                     onClick={() => handleDelete(item.id)}
                     className="text-red-500 hover:underline"
@@ -297,7 +282,6 @@ function App() {
               </div>
             </div>
           ))}
-
         </div>
       </div>
     </div>
