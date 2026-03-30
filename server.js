@@ -4,31 +4,47 @@ import cors from "cors";
 import dotenv from "dotenv";
 import https from "https";
 import fs from "fs";
+import path from "path";
 import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
 const app = express();
-app.use(cors());
+
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL]
+  : ["http://localhost:5173", "http://localhost:5174"];
+
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
-const ALLOWED_MIMETYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
+function csrfProtection(req, res, next) {
+  const origin = req.headers.origin || req.headers.referer || "";
+  const allowed = allowedOrigins.some((o) => origin.startsWith(o));
+  if (!allowed) return res.status(403).json({ error: "CSRF check failed." });
+  next();
+}
+
+const ALLOWED_MIMETYPES = [
+  "audio/wav", "audio/mpeg", "audio/mp4",
+  "audio/webm", "audio/x-m4a", "video/webm",
+];
+
+const UPLOADS_DIR = path.resolve("uploads");
 
 const upload = multer({
   dest: "uploads/",
   limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (ALLOWED_MIMETYPES.includes(file.mimetype)) cb(null, true);
-    else cb(new Error(`Invalid file type: "${file.mimetype}". Allowed types: WAV, MP3, M4A, WebM`));
+    else cb(new Error(`Invalid file type: "${file.mimetype}". Allowed: WAV, MP3, M4A, WebM`));
   },
 });
 
-// 🗄 Supabase — service role key for backend operations
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
 
-// 🔐 Auth middleware — verifies Supabase JWT from frontend
 async function requireAuth(req, res, next) {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Unauthorized. Please log in." });
@@ -40,7 +56,12 @@ async function requireAuth(req, res, next) {
   next();
 }
 
-// 🎤 Deepgram transcription
+function safeFilePath(filePath) {
+  const resolved = path.resolve(filePath);
+  if (!resolved.startsWith(UPLOADS_DIR)) throw new Error("Invalid file path.");
+  return resolved;
+}
+
 async function transcribeAudio(audioBuffer, mimetype) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -76,8 +97,7 @@ async function transcribeAudio(audioBuffer, mimetype) {
   });
 }
 
-// 🚀 1. TRANSCRIBE + STORE (scoped to logged-in user)
-app.post("/transcribe", requireAuth, (req, res, next) => {
+app.post("/transcribe", requireAuth, csrfProtection, (req, res, next) => {
   upload.single("audio")(req, res, (err) => {
     if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE")
       return res.status(400).json({ error: "File too large. Maximum allowed size is 25MB." });
@@ -87,8 +107,15 @@ app.post("/transcribe", requireAuth, (req, res, next) => {
 }, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No audio file uploaded." });
 
+  let safePath;
   try {
-    const audio = fs.readFileSync(req.file.path);
+    safePath = safeFilePath(req.file.path);
+  } catch {
+    return res.status(400).json({ error: "Invalid file path." });
+  }
+
+  try {
+    const audio = fs.readFileSync(safePath);
     const mimeType = req.file.mimetype || "audio/wav";
 
     const response = await transcribeAudio(audio, mimeType);
@@ -105,17 +132,16 @@ app.post("/transcribe", requireAuth, (req, res, next) => {
       return res.status(500).json({ error: `Database error: ${dbError.message}` });
     }
 
-    fs.unlink(req.file.path, () => {});
+    fs.unlink(safePath, () => {});
     res.json({ text: transcript });
 
   } catch (error) {
-    if (req.file?.path) fs.unlink(req.file.path, () => {});
+    if (safePath) fs.unlink(safePath, () => {});
     console.error("Transcription error:", error.message);
     res.status(500).json({ error: error.message || "Server error" });
   }
 });
 
-// 📜 2. FETCH HISTORY (only current user's rows)
 app.get("/transcriptions", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -131,8 +157,7 @@ app.get("/transcriptions", requireAuth, async (req, res) => {
   }
 });
 
-// ❌ 3. DELETE (only current user's row)
-app.delete("/transcriptions/:id", requireAuth, async (req, res) => {
+app.delete("/transcriptions/:id", requireAuth, csrfProtection, async (req, res) => {
   try {
     const { id } = req.params;
     if (!id || isNaN(Number(id))) return res.status(400).json({ error: "Invalid transcription ID." });
@@ -141,7 +166,7 @@ app.delete("/transcriptions/:id", requireAuth, async (req, res) => {
       .from("transcriptions")
       .delete()
       .eq("id", id)
-      .eq("user_id", req.user.id); // 🔒 prevents deleting other users' data
+      .eq("user_id", req.user.id);
 
     if (error) return res.status(500).json({ error: "Failed to delete transcription." });
     res.json({ message: "Deleted successfully" });
@@ -150,4 +175,5 @@ app.delete("/transcriptions/:id", requireAuth, async (req, res) => {
   }
 });
 
-app.listen(5000, () => console.log("✅ Server running on http://localhost:5000"));
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
