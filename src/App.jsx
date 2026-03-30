@@ -4,6 +4,7 @@ import Auth from "./Auth";
 
 const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
 const MAX_SIZE_MB = 25;
+const API = "";
 
 function App() {
   const [session, setSession] = useState(null);
@@ -17,7 +18,6 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const audioChunks = useRef([]);
 
-  // 🔐 Auth session listener
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setSession(session));
@@ -37,8 +37,9 @@ function App() {
   const loadHistory = async () => {
     try {
       const token = await getToken();
-      const res = await fetch("http://localhost:5000/transcriptions", {
+      const res = await fetch(`${API}/transcriptions`, {
         headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to load history.");
       const data = await res.json();
@@ -80,7 +81,6 @@ function App() {
       audioChunks.current = [];
 
       recorder.ondataavailable = (e) => audioChunks.current.push(e.data);
-
       recorder.onstop = () => {
         const blob = new Blob(audioChunks.current, { type: "audio/webm" });
         setFile(new File([blob], "recording.webm", { type: "audio/webm" }));
@@ -118,9 +118,10 @@ function App() {
       const formData = new FormData();
       formData.append("audio", file);
 
-      const res = await fetch("http://localhost:5000/transcribe", {
+      const res = await fetch(`${API}/transcribe`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
         body: formData,
       });
 
@@ -146,9 +147,10 @@ function App() {
 
     try {
       const token = await getToken();
-      const res = await fetch(`http://localhost:5000/transcriptions/${safeId}`, {
+      const res = await fetch(`${API}/transcriptions/${safeId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
       });
       if (!res.ok) {
         const data = await res.json();
@@ -169,13 +171,10 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  // 🔐 Show login screen if not authenticated
   if (!session) return <Auth />;
 
   return (
     <div className="min-h-screen bg-gray-100">
-
-      {/* HEADER */}
       <header className="bg-white shadow p-4 flex justify-between items-center sticky top-0 z-10">
         <h1 className="text-xl font-bold text-gray-700">🎤 Speech Dashboard</h1>
         <div className="flex items-center gap-4">
@@ -192,8 +191,6 @@ function App() {
       </header>
 
       <div className="grid md:grid-cols-2 gap-6 p-6">
-
-        {/* LEFT PANEL */}
         <div className="bg-white p-6 rounded-xl shadow">
           <h2 className="text-lg font-semibold mb-4">Upload / Record</h2>
 
@@ -245,7 +242,6 @@ function App() {
           )}
         </div>
 
-        {/* RIGHT PANEL */}
         <div className="bg-white p-6 rounded-xl shadow max-h-[75vh] overflow-y-auto">
           <h2 className="text-lg font-semibold mb-4">History</h2>
 
