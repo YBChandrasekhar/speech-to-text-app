@@ -10,14 +10,34 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 const app = express();
 
+// Fix: support multiple origins and trim whitespace from env var
 const allowedOrigins = process.env.FRONTEND_URL
-  ? [process.env.FRONTEND_URL]
+  ? process.env.FRONTEND_URL.split(",").map((o) => o.trim())
   : ["http://localhost:5173", "http://localhost:5174"];
 
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+// Fix: use a function for origin so credentials work correctly with dynamic origins
+const corsOptions = {
+  origin: (origin, callback) => {
+    // allow requests with no origin (curl, Postman, server-to-server)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS: origin '${origin}' not allowed`));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+app.use(cors(corsOptions));
+// Fix: handle preflight OPTIONS requests for all routes
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
 function csrfProtection(req, res, next) {
+  // Fix: skip CSRF check for OPTIONS preflight requests
+  if (req.method === "OPTIONS") return next();
   const origin = req.headers.origin || req.headers.referer || "";
   const allowed = allowedOrigins.some((o) => origin.startsWith(o));
   if (!allowed) return res.status(403).json({ error: "CSRF check failed." });
@@ -29,7 +49,6 @@ const ALLOWED_MIMETYPES = [
   "audio/webm", "audio/x-m4a", "video/webm",
 ];
 
-// Fix: resolve UPLOADS_DIR to absolute path once at startup
 const UPLOADS_DIR = path.resolve("uploads");
 
 const upload = multer({
@@ -57,7 +76,6 @@ async function requireAuth(req, res, next) {
   next();
 }
 
-// Fix: normalize + verify path stays inside UPLOADS_DIR
 function safeFilePath(filePath) {
   const resolved = path.normalize(path.resolve(filePath));
   if (!resolved.startsWith(UPLOADS_DIR + path.sep) && resolved !== UPLOADS_DIR) {
@@ -66,18 +84,17 @@ function safeFilePath(filePath) {
   return resolved;
 }
 
-// Fix: strictly validate mimetype before using it in the request header (prevents SSRF via header injection)
 async function transcribeAudio(audioBuffer, mimetype) {
   const safeMime = ALLOWED_MIMETYPES.includes(mimetype) ? mimetype : "audio/wav";
 
   return new Promise((resolve, reject) => {
     const options = {
-      hostname: "api.deepgram.com",           // hardcoded — not user-controlled
+      hostname: "api.deepgram.com",
       path: "/v1/listen?model=nova-2&punctuate=true",
       method: "POST",
       headers: {
         Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-        "Content-Type": safeMime,             // validated value only
+        "Content-Type": safeMime,
       },
     };
 
