@@ -4,7 +4,7 @@ import Auth from "./Auth";
 
 const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
 const MAX_SIZE_MB = 25;
-const API = "";
+const API = import.meta.env.VITE_API_URL || "";
 
 function App() {
   const [session, setSession] = useState(null);
