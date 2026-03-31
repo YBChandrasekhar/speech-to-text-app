@@ -32,7 +32,7 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 // Fix: handle preflight OPTIONS requests for all routes
-app.options("*", cors(corsOptions));
+app.options("/{*any}", cors(corsOptions));
 app.use(express.json());
 
 function csrfProtection(req, res, next) {
