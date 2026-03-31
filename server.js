@@ -29,6 +29,7 @@ const ALLOWED_MIMETYPES = [
   "audio/webm", "audio/x-m4a", "video/webm",
 ];
 
+// Fix: resolve UPLOADS_DIR to absolute path once at startup
 const UPLOADS_DIR = path.resolve("uploads");
 
 const upload = multer({
@@ -56,21 +57,27 @@ async function requireAuth(req, res, next) {
   next();
 }
 
+// Fix: normalize + verify path stays inside UPLOADS_DIR
 function safeFilePath(filePath) {
-  const resolved = path.resolve(filePath);
-  if (!resolved.startsWith(UPLOADS_DIR)) throw new Error("Invalid file path.");
+  const resolved = path.normalize(path.resolve(filePath));
+  if (!resolved.startsWith(UPLOADS_DIR + path.sep) && resolved !== UPLOADS_DIR) {
+    throw new Error("Invalid file path.");
+  }
   return resolved;
 }
 
+// Fix: strictly validate mimetype before using it in the request header (prevents SSRF via header injection)
 async function transcribeAudio(audioBuffer, mimetype) {
+  const safeMime = ALLOWED_MIMETYPES.includes(mimetype) ? mimetype : "audio/wav";
+
   return new Promise((resolve, reject) => {
     const options = {
-      hostname: "api.deepgram.com",
+      hostname: "api.deepgram.com",           // hardcoded — not user-controlled
       path: "/v1/listen?model=nova-2&punctuate=true",
       method: "POST",
       headers: {
         Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-        "Content-Type": mimetype || "audio/wav",
+        "Content-Type": safeMime,             // validated value only
       },
     };
 

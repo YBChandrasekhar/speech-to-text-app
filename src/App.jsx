@@ -1,10 +1,24 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 import Auth from "./Auth";
 
 const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
 const MAX_SIZE_MB = 25;
-const API = import.meta.env.VITE_API_URL || "";
+
+const RAW_API = import.meta.env.VITE_API_URL || "";
+const API = (() => {
+  if (!RAW_API) return "";
+  try {
+    const { protocol, hostname } = new URL(RAW_API);
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+    if (!["http:", "https:"].includes(protocol) || (!isLocal && protocol !== "https:"))
+      throw new Error("Untrusted API URL");
+    return RAW_API.replace(/\/$/, "");
+  } catch {
+    console.error("Invalid VITE_API_URL — falling back to relative URLs");
+    return "";
+  }
+})();
 
 function App() {
   const [session, setSession] = useState(null);
@@ -34,7 +48,7 @@ function App() {
     return session?.access_token;
   };
 
-  const loadHistory = async () => {
+  const loadHistory = useCallback(async () => {
     try {
       const token = await getToken();
       const res = await fetch(`${API}/transcriptions`, {
@@ -47,17 +61,17 @@ function App() {
     } catch (err) {
       console.error(err);
     }
-  };
+  }, []);
 
-  const validateFile = (f) => {
+  const validateFile = useCallback((f) => {
     if (!ALLOWED_TYPES.includes(f.type))
       return `Invalid file type "${f.type}". Please upload WAV, MP3, M4A, or WebM.`;
     if (f.size > MAX_SIZE_MB * 1024 * 1024)
       return `File too large. Maximum allowed size is ${MAX_SIZE_MB}MB.`;
     return null;
-  };
+  }, []);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = useCallback((e) => {
     const selected = e.target.files[0];
     if (!selected) return;
     const validationError = validateFile(selected);
@@ -70,9 +84,9 @@ function App() {
     setFile(selected);
     setTranscript("");
     setError("");
-  };
+  }, [validateFile]);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     setError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -97,14 +111,14 @@ function App() {
       else
         setError(`Recording failed: ${err.message}`);
     }
-  };
+  }, []);
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     mediaRecorderRef.current.stop();
     setIsRecording(false);
-  };
+  }, []);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!file) { setError("Please upload or record audio before transcribing."); return; }
     const validationError = validateFile(file);
     if (validationError) { setError(validationError); return; }
@@ -139,9 +153,9 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [file, validateFile, loadHistory]);
 
-  const handleDelete = async (id) => {
+  const handleDelete = useCallback(async (id) => {
     const safeId = parseInt(id, 10);
     if (!Number.isInteger(safeId) || safeId <= 0) { setError("Invalid transcription ID."); return; }
 
@@ -160,16 +174,26 @@ function App() {
     } catch (err) {
       setError(`Delete failed: ${err.message}`);
     }
-  };
+  }, [loadHistory]);
 
-  const downloadText = (text) => {
+  const handleDeleteClick = useCallback((e) => {
+    handleDelete(e.currentTarget.dataset.id);
+  }, [handleDelete]);
+
+  const handleSignOut = useCallback(() => supabase.auth.signOut(), []);
+
+  const downloadText = useCallback((text) => {
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = "transcript.txt";
     a.click();
     URL.revokeObjectURL(url);
-  };
+  }, []);
+
+  const handleDownloadClick = useCallback((e) => {
+    downloadText(e.currentTarget.dataset.transcript);
+  }, [downloadText]);
 
   if (!session) return <Auth />;
 
@@ -182,7 +206,7 @@ function App() {
           <span className="text-sm text-gray-400">|</span>
           <span className="text-sm text-gray-500">{history.length} Transcriptions</span>
           <button
-            onClick={() => supabase.auth.signOut()}
+            onClick={handleSignOut}
             className="text-sm text-red-500 hover:underline"
           >
             Logout
@@ -263,13 +287,15 @@ function App() {
                 <span>{new Date(item.created_at).toLocaleString()}</span>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => downloadText(item.transcript)}
+                    data-transcript={item.transcript}
+                    onClick={handleDownloadClick}
                     className="text-blue-500 hover:underline"
                   >
                     Download
                   </button>
                   <button
-                    onClick={() => handleDelete(item.id)}
+                    data-id={item.id}
+                    onClick={handleDeleteClick}
                     className="text-red-500 hover:underline"
                   >
                     Delete
