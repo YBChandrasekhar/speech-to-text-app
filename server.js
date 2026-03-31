@@ -10,15 +10,12 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 const app = express();
 
-// Fix: support multiple origins and trim whitespace from env var
 const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(",").map((o) => o.trim())
   : ["http://localhost:5173", "http://localhost:5174"];
 
-// Fix: use a function for origin so credentials work correctly with dynamic origins
 const corsOptions = {
   origin: (origin, callback) => {
-    // allow requests with no origin (curl, Postman, server-to-server)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -31,12 +28,15 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// Fix: handle preflight OPTIONS requests for all routes
 app.options("/{*any}", cors(corsOptions));
 app.use(express.json());
 
+// Health check — verify allowed origins are loaded correctly
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", allowedOrigins });
+});
+
 function csrfProtection(req, res, next) {
-  // Fix: skip CSRF check for OPTIONS preflight requests
   if (req.method === "OPTIONS") return next();
   const origin = req.headers.origin || req.headers.referer || "";
   const allowed = allowedOrigins.some((o) => origin.startsWith(o));
