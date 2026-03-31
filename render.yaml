@@ -2,7 +2,7 @@ services:
   - type: web
     name: speech-to-text-backend
     runtime: node
-    buildCommand: npm install
+    buildCommand: npm install && mkdir -p uploads
     startCommand: node server.js
     envVars:
       - key: DEEPGRAM_API_KEY
@@ -13,3 +13,5 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: NODE_ENV
+        value: production

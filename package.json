@@ -14,9 +14,7 @@
     "@deepgram/sdk": "^5.0.0",
     "@supabase/supabase-js": "^2.100.0",
     "@tailwindcss/vite": "^4.2.2",
-    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "csrf-csrf": "^4.0.3",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "multer": "^2.1.1",
@@ -37,8 +35,8 @@
     "tailwindcss": "^4.2.2",
     "vite": "^8.0.1"
   },
-  "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
-  "main": "eslint.config.js",
+  "description": "Speech-to-text app using React, Vite, Express, and Deepgram.",
+  "main": "server.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/YBChandrasekhar/speech-to-text-app.git"
