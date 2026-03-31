@@ -5,7 +5,7 @@ import Auth from "./Auth";
 const ALLOWED_TYPES = ["audio/wav", "audio/mpeg", "audio/mp4", "audio/webm", "audio/x-m4a", "video/webm"];
 const MAX_SIZE_MB = 25;
 
-const RAW_API = import.meta.env.VITE_API_URL || "";
+const RAW_API = import.meta.env.PROD ? (import.meta.env.VITE_API_URL || "") : "";
 const API = (() => {
   if (!RAW_API) return "";
   try {
